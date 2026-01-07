@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotebookLM Akıllı Temizleyici</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        h1 { color: #2563eb; text-align: center; margin-bottom: 10px; }
+        p.subtitle { text-align: center; color: #6b7280; margin-bottom: 30px; }
+        
+        .upload-section { border: 2px dashed #e5e7eb; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; background: #f9fafb; }
+        .upload-section:hover { border-color: #2563eb; background: #eff6ff; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 16px; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        
+        /* Kontrol Paneli */
+        .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; display: none; }
+        .controls.show { display: grid; }
+        .control-group { display: flex; flex-direction: column; gap: 8px; }
+        .control-group label { font-size: 14px; font-weight: 600; color: #4b5563; }
+        .slider-container { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex: 1; accent-color: #2563eb; }
+        
+        /* Önizleme */
+        .preview-area { margin-top: 30px; display: none; gap: 20px; grid-template-columns: 1fr 1fr; }
+        .preview-area.show { display: grid; }
+        .preview-card { background: #fff; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .preview-card h3 { font-size: 16px; margin-bottom: 10px; color: #374151; text-align: center; }
+        canvas { width: 100%; border: 1px solid #d1d5db; border-radius: 4px; background: #eee; }
+
+        .progress-box { margin-top: 20px; display: none; }
+        .progress-box.show { display: block; }
+        .progress-bar { width: 100%; height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; margin-top: 5px; }
+        .progress-fill { height: 100%; background: #2563eb; width: 0%; transition: width 0.3s; }
+        
+        #fileInput { display: none; }
+        .download-section { text-align: center; margin-top: 20px; display: none; }
+        .download-section.show { display: block; }
+        
+        @media (max-width: 768px) { .preview-area.show { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NotebookLM Temizleyici</h1>
+        <p class="subtitle">Sadece logoyu siler, sayfa numaralarını ve arka plan rengini korur.</p>
+
+        <div class="upload-section" onclick="document.getElementById('fileInput').click()">
+            <div style="font-size: 40px; color: #9ca3af; margin-bottom: 10px;">📄</div>
+            <h3>PDF Dosyasını Seç veya Sürükle</h3>
+            <p style="color: #6b7280; font-size: 14px;">Maksimum 200MB</p>
+            <input type="file" id="fileInput" accept=".pdf">
+        </div>
+
+        <div class="file-info" id="fileInfo" style="margin-top: 15px; text-align: center; color: #059669; font-weight: 600;"></div>
+
+        <div class="controls" id="controlsPanel">
+            <div class="control-group">
+                <label>Yama Konumu (Sağ-Sol)</label>
+                <div class="slider-container">
+                    <input type="range" id="posX" min="0" max="100" value="50">
+                    <span id="valX">Ortada</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>Yama Genişliği</label>
+                <div class="slider-container">
+                    <input type="range" id="widthVal" min="5" max="100" value="25">
+                    <span id="valW">%25</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>Yama Yüksekliği</label>
+                <div class="slider-container">
+                    <input type="range" id="heightVal" min="1" max="15" value="5">
+                    <span id="valH">%5</span>
+                </div>
+            </div>
+            <div class="control-group" style="justify-content: flex-end;">
+                <label style="color: #2563eb;">Akıllı Renk Eşleştirme Aktif</label>
+                <p style="font-size: 12px; color: #6b7280;">Yama rengi dosyadan otomatik alınır.</p>
+            </div>
+        </div>
+
+        <div class="preview-area" id="previewArea">
+            <div class="preview-card">
+                <h3>Orijinal (İlk Sayfa)</h3>
+                <canvas id="originalCanvas"></canvas>
+            </div>
+            <div class="preview-card">
+                <h3>Önizleme (Logosuz)</h3>
+                <canvas id="cleanedCanvas"></canvas>
+            </div>
+        </div>
+
+        <div class="progress-box" id="progressBox">
+            <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                <span id="progressText">İşleniyor...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        </div>
+
+        <div class="download-section" id="downloadSection">
+            <button class="btn" id="processBtn" style="font-size: 18px; padding: 15px 40px;">Temizle ve İndir</button>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        let state = {
+            pdfDoc: null,
+            file: null,
+            scale: 1.5, // Önizleme kalitesi
+            currentPage: 1
+        };
+
+        const els = {
+            input: document.getElementById('fileInput'),
+            controls: document.getElementById('controlsPanel'),
+            preview: document.getElementById('previewArea'),
+            dlSection: document.getElementById('downloadSection'),
+            btn: document.getElementById('processBtn'),
+            pBox: document.getElementById('progressBox'),
+            pFill: document.getElementById('progressFill'),
+            pText: document.getElementById('progressText'),
+            pPer: document.getElementById('progressPercent'),
+            fileInfo: document.getElementById('fileInfo')
+        };
+
+        // Event Listeners
+        els.input.onchange = (e) => handleFile(e.target.files[0]);
+        els.btn.onclick = startProcessing;
+
+        // Slider Events (Canlı Önizleme)
+        ['posX', 'widthVal', 'heightVal'].forEach(id => {
+            document.getElementById(id).oninput = (e) => {
+                updateLabels();
+                if(state.pdfDoc) renderPreview(state.pdfDoc, true);
+            };
+        });
+
+        function updateLabels() {
+            document.getElementById('valW').innerText = '%' + document.getElementById('widthVal').value;
+            document.getElementById('valH').innerText = '%' + document.getElementById('heightVal').value;
+            let pos = document.getElementById('posX').value;
+            let text = pos == 50 ? "Ortada" : (pos < 50 ? "Sola Yakın" : "Sağa Yakın");
+            document.getElementById('valX').innerText = text;
+        }
+
+        function handleFile(file) {
+            if(!file || file.type !== 'application/pdf') return alert('Lütfen PDF dosyası seçin.');
+            state.file = file;
+            els.fileInfo.innerText = `Seçilen Dosya: ${file.name}`;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arr = new Uint8Array(e.target.result);
+                pdfjsLib.getDocument(arr).promise.then(pdf => {
+                    state.pdfDoc = pdf;
+                    els.controls.classList.add('show');
+                    els.preview.classList.add('show');
+                    els.dlSection.classList.add('show');
+                    // Orijinali ve Önizlemeyi Çiz
+                    renderPreview(pdf, false); // Orijinal
+                    renderPreview(pdf, true);  // Temizlenmiş
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function renderPreview(pdf, clean) {
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: state.scale });
+            const canvas = document.getElementById(clean ? 'cleanedCanvas' : 'originalCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+            if (clean) {
+                applySmartPatch(canvas, ctx);
+            }
+        }
+
+        function applySmartPatch(canvas, ctx) {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Kullanıcı Ayarları
+            const patchWidthPercent = parseInt(document.getElementById('widthVal').value) / 100;
+            const patchHeightPercent = parseInt(document.getElementById('heightVal').value) / 100;
+            const posXPercent = parseInt(document.getElementById('posX').value) / 100;
+
+            // Yama Boyutları
+            const rectW = w * patchWidthPercent;
+            const rectH = h * patchHeightPercent;
+            
+            // Yama Konumu (Merkezleme mantığı)
+            // posXPercent 0.5 ise tam ortada olmalı. 
+            // Formül: (Canvas Genişliği * Konum Yüzdesi) - (Yama Genişliği / 2)
+            const rectX = (w * posXPercent) - (rectW / 2);
+            
+            // Dikey Konum: Sayfanın en altından, belirlenen yükseklik kadar yukarı
+            const rectY = h - rectH;
+
+            // --- AKILLI RENK SEÇİMİ (BUKALEMUN) ---
+            // Yamanın hemen üzerinden (5 piksel yukarı) bir renk örneği al
+            // Böylece arka plan griyse gri, beyazsa beyaz olur.
+            const sampleX = Math.max(0, Math.min(w - 1, rectX + rectW / 2)); // Yamanın orta hizası
+            const sampleY = Math.max(0, rectY - 5); // Yamanın 5px yukarısı
+            
+            const p = ctx.getImageData(sampleX, sampleY, 1, 1).data;
+            const bgColor = `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
+
+            // Yamayı Çiz
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(rectX, rectY, rectW, rectH);
+
+            // Opsiyonel: Yamanın sınırlarını çizgiyle göster (Sadece debug için, gerçek işlemde kapalı)
+            // ctx.strokeStyle = "red"; ctx.strokeRect(rectX, rectY, rectW, rectH);
+        }
+
+        async function startProcessing() {
+            if(!state.pdfDoc) return;
+            els.btn.disabled = true;
+            els.pBox.classList.add('show');
+            
+            const pdfOut = new jspdf.jsPDF({ unit: 'pt' }); // Point birimi önemli
+            const total = state.pdfDoc.numPages;
+
+            for (let i = 1; i <= total; i++) {
+                // İlerleme Çubuğu
+                const percent = Math.round((i / total) * 100);
+                els.pFill.style.width = `${percent}%`;
+                els.pPer.innerText = `${percent}%`;
+                els.pText.innerText = `Sayfa ${i} / ${total} işleniyor...`;
+
+                const page = await state.pdfDoc.getPage(i);
+                
+                // 1. Orijinal Boyutları Koru (Scale 1.0 = 72 DPI Point)
+                const originalViewport = page.getViewport({ scale: 1.0 });
+                const pW = originalViewport.width;
+                const pH = originalViewport.height;
+
+                // 2. Yüksek Çözünürlükte Render Al (Scale 2.0 veya 3.0)
+                const renderScale = 2.0; 
+                const renderViewport = page.getViewport({ scale: renderScale });
+                
+                const cv = document.createElement('canvas');
+                cv.width = renderViewport.width;
+                cv.height = renderViewport.height;
+                const ctx = cv.getContext('2d');
+
+                await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+
+                // 3. Akıllı Yamayı Uygula (Yüksek çözünürlüklü canvas üzerinde)
+                applySmartPatch(cv, ctx);
+
+                // 4. PDF'e Ekle
+                const imgData = cv.toDataURL('image/jpeg', 0.85);
+                const orient = pW > pH ? 'l' : 'p';
+
+                if (i === 1) {
+                    // İlk sayfada PDF boyutunu ayarla
+                    pdfOut.internal.pageSize.width = pW;
+                    pdfOut.internal.pageSize.height = pH;
+                    // jsPDF varsayılan olarak A4 başlatır, bunu düzeltmek için:
+                    pdfOut.deletePage(1);
+                    pdfOut.addPage([pW, pH], orient);
+                } else {
+                    pdfOut.addPage([pW, pH], orient);
+                }
+
+                pdfOut.addImage(imgData, 'JPEG', 0, 0, pW, pH);
+            }
+
+            els.pText.innerText = "PDF Oluşturuluyor...";
+            pdfOut.save(`temizlenmis_${state.file.name}`);
+            
+            els.btn.disabled = false;
+            els.pText.innerText = "Tamamlandı!";
+        }
+    </script>
+</body>
+</html>
